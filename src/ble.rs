@@ -1,6 +1,8 @@
 use btleplug::{api::{Central, Manager as _, Peripheral}, platform::Adapter};
+use serde::Serialize;
 use std::{error::Error, sync::Arc};
 
+#[derive(Debug, Serialize)]
 pub struct Beacon {
     mac_address: String,
     rssi: i16,

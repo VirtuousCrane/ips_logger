@@ -1,5 +1,6 @@
 use btleplug::{api::{Central, CentralEvent, Manager as _, Peripheral, ScanFilter}, platform::{Adapter, Manager}};
-use futures::stream::StreamExt;
+use csv::Writer;
+use futures::{future::join_all, stream::StreamExt};
 use clap::Parser;
 use ips_logger::ble::{get_scan_result, Beacon};
 use tokio::{self, time};
@@ -52,7 +53,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
     
     // Common
     let (ble_tx, ble_rx) = mpsc::channel::<BeaconList>();
-
+    
+    // CSV
+    let mut csv_writer = Writer::from_path(args.output)?;
     // BLE Scan
     let ble_manager = Manager::new().await?;
     let ble_adapters = ble_manager.adapters().await?;
@@ -60,6 +63,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
     ble_central.start_scan(ScanFilter { services: vec![BLE_BEACON_UUID] }).await?;
 
+    // BLE Process
     let ble_scan_handle = tokio::spawn(async move {
         let tx = ble_tx;
 
@@ -82,7 +86,27 @@ async fn main() -> Result<(), Box<dyn Error>> {
         }
     });
     
-    let _t = ble_scan_handle.await;
+    // CSV Thread
+    let csv_handle = tokio::task::spawn(async move {
+        let rx = ble_rx;
+        let mut writer = csv_writer;
+
+        for beacons in rx {
+            for beacon in beacons.iter() {
+                if let Err(e) = writer.serialize(beacon) {
+                    println!("Failed to write beacon: {}", e.to_string());
+                    continue;
+                }
+            }
+
+            if let Err(e) = writer.flush() {
+                println!("Failed to write to file: {}", e.to_string());
+            }
+        }
+    });
+    
+    
+    join_all(vec![ble_scan_handle, csv_handle]).await;
     
     Ok(())
 }
