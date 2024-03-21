@@ -55,7 +55,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let (ble_tx, ble_rx) = mpsc::channel::<BeaconList>();
     
     // CSV
-    let mut csv_writer = Writer::from_path(args.output)?;
+    let csv_writer = Writer::from_path(args.output)?;
+
     // BLE Scan
     let ble_manager = Manager::new().await?;
     let ble_adapters = ble_manager.adapters().await?;
