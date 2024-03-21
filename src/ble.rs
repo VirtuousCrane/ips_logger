@@ -1,11 +1,26 @@
 use btleplug::{api::{Central, Manager as _, Peripheral}, platform::Adapter};
-use serde::Serialize;
+use serde::{Serialize, Deserialize};
 use std::{error::Error, sync::Arc};
 
 #[derive(Debug, Serialize)]
 pub struct Beacon {
-    mac_address: String,
-    rssi: i16,
+    pub mac_address: String,
+    pub rssi: i16,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct BeaconCalibrationData {
+    pub device_identifier: String,
+    pub mac_address: String,
+    pub rssi: i16,
+    pub diff: i16,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+pub struct MqttBeaconData {
+    pub device_identifier: String,
+    pub mac_address: i16,
+    pub rssi: i16,
 }
 
 pub async fn get_scan_result(ble_central: &Adapter) -> Result<Arc<Vec<Beacon>>, Box<dyn Error>> {
