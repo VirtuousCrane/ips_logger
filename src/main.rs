@@ -172,7 +172,12 @@ async fn main() -> Result<(), Box<dyn Error>> {
                 };
                 
                 for v in calibrator_map.values() {
-                    if let Err(e) = mqtt_writer.serialize(v) {
+                    let calibrated_beacon = Beacon {
+                        mac_address: v.mac_address.clone(),
+                        rssi: beacon.rssi + v.diff
+                    };
+
+                    if let Err(e) = mqtt_writer.serialize(calibrated_beacon) {
                         println!("Failed to write beacon: {}", e.to_string());
                         continue;
                     }
