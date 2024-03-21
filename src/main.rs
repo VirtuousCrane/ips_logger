@@ -1,9 +1,12 @@
 use btleplug::{api::{Central, CentralEvent, Manager as _, Peripheral, ScanFilter}, platform::{Adapter, Manager}};
 use futures::stream::StreamExt;
 use clap::Parser;
+use ips_logger::ble::{get_scan_result, Beacon};
 use tokio::{self, time};
 use uuid::{uuid, Uuid};
-use std::{error::Error, time::Duration};
+use std::{error::Error, sync::{mpsc, Arc}, time::Duration};
+
+type BeaconList = Arc<Vec<Beacon>>;
 
 const BLE_BEACON_UUID: Uuid = uuid!("422da7fb-7d15-425e-a65f-e0dbcc6f4c6a");
 
@@ -25,68 +28,61 @@ struct Args {
     #[arg(short, long)]
     verbose: bool,
 
+    /// BLE Scan Period (Scan every n Seconds)
+    #[arg(long, default_value_t = 2)]
+    period: u64,
+
     /// Output file name
     #[arg(default_value_t = String::from("output.csv"))]
     output: String,
 }
 
-struct Beacon {
-    mac_address: String,
-    rssi: i16,
-}
-
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
-/* 
+
+    // Arg Parse
     let args = Args::parse();
     
     println!("Host: {:?}", args.host);
     println!("Port: {:?}", args.port);
     println!("Topic: {:?}", args.topic);
     println!("Verbose: {:?}", args.verbose);
-    println!("Output: {:?}", args.output)
-*/
+    println!("Scan Period: {:?}", args.period);
+    println!("Output: {:?}", args.output);
+    
+    // Common
+    let (ble_tx, ble_rx) = mpsc::channel::<BeaconList>();
+
+    // BLE Scan
     let ble_manager = Manager::new().await?;
     let ble_adapters = ble_manager.adapters().await?;
     let ble_central = ble_adapters.into_iter().nth(0).unwrap();
-    
+
     ble_central.start_scan(ScanFilter { services: vec![BLE_BEACON_UUID] }).await?;
 
-    loop {
-        time::sleep(Duration::from_secs(2)).await;
+    let ble_scan_handle = tokio::spawn(async move {
+        let tx = ble_tx;
 
-        let peripherals = ble_central.peripherals().await?;
-
-        for peripheral in peripherals.iter() {
-            let mac_address = peripheral.address();
-
-            let properties_result = peripheral.properties().await;
-            let properties = match properties_result {
-                Ok(property) => property,
-                Err(_) => {
-                    println!("Failed to extract property");
-                    continue;
+        loop {
+            time::sleep(Duration::from_secs(args.period)).await;
+            let beacons = get_scan_result(&ble_central).await;
+            
+            match beacons {
+                Ok(beacons_arc) => {
+                    match tx.send(beacons_arc) {
+                        Ok(_) => (),
+                        Err(e) => println!("Failed to pass message between BLE and Output Channel: {}", e.to_string()),
+                    }
                 },
-            };
-
-            let rssi_option = match properties {
-                Some(property) => property.rssi,
-                None => continue,
-            };
-
-            let rssi = match rssi_option {
-                Some(r) => r,
-                None => {
-                    println!("Failed to get RSSI");
+                Err(e) => {
+                    println!("Failed to fetch scan result: {}", e.to_string());
                     continue;
                 }
-            };
-            
-            let beacon = Beacon { mac_address: mac_address.to_string(), rssi };
-            
-            println!("Discovered: {} rssi: {}", beacon.mac_address, beacon.rssi);
+            }
         }
-    }
+    });
+    
+    let _t = ble_scan_handle.await;
     
     Ok(())
 }
